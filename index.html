@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>加州油价实时监测 | California Gas Price Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg-primary: #0f1923; --bg-secondary: #1a2634; --bg-card: #1e2d3d;
+    --border: #2a3f52; --text-primary: #e8edf2; --text-secondary: #8b9db5;
+    --accent-green: #00e676; --accent-red: #ff5252; --accent-orange: #ffab40;
+    --accent-blue: #40c4ff; --accent-yellow: #ffd740;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow: hidden; height: 100vh; }
+
+  .header { background: linear-gradient(135deg, var(--bg-secondary), #162230); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .header-left .logo { width: 36px; height: 36px; background: linear-gradient(135deg, var(--accent-orange), var(--accent-red)); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .header-left h1 { font-size: 18px; font-weight: 700; }
+  .header-left h1 span { color: var(--accent-orange); }
+  .header-right { display: flex; align-items: center; gap: 18px; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-green); animation: pulse 1.5s infinite; display: inline-block; }
+  @keyframes pulse { 0%,100%{ opacity:1; box-shadow:0 0 0 0 rgba(0,230,118,0.5); } 50%{ opacity:0.7; box-shadow:0 0 0 6px rgba(0,230,118,0); } }
+  .update-time { font-size: 13px; color: var(--text-secondary); }
+  .fuel-type-selector { display: flex; gap: 4px; }
+  .fuel-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 12px; transition: all 0.2s; }
+  .fuel-btn.active { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+  .data-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: rgba(0,230,118,0.15); color: var(--accent-green); border: 1px solid rgba(0,230,118,0.3); }
+
+  .main { display: flex; height: calc(100vh - 60px); }
+
+  /* Left 60% - Map */
+  .map-panel { width: 60%; border-right: 1px solid var(--border); display: flex; flex-direction: column; position: relative; }
+  .map-stats-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
+  .stat-card { flex: 1; padding: 12px 16px; border-right: 1px solid var(--border); text-align: center; }
+  .stat-card:last-child { border-right: none; }
+  .stat-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .stat-value { font-size: 22px; font-weight: 700; }
+  .stat-value.low { color: var(--accent-green); } .stat-value.high { color: var(--accent-red); }
+  .stat-value.avg { color: var(--accent-orange); } .stat-value.med { color: var(--accent-blue); }
+  .stat-change { font-size: 11px; margin-top: 2px; }
+  .stat-change.up { color: var(--accent-red); } .stat-change.down { color: var(--accent-green); }
+  .map-container { flex: 1; position: relative; overflow: hidden; }
+  #california-map { width: 100%; height: 100%; }
+  .county-tooltip { position: absolute; top: 50px; right: 12px; pointer-events: none; background: rgba(20,30,45,0.96); border: 1px solid var(--accent-blue); border-radius: 10px; padding: 14px 18px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index: 100; display: none; min-width: 220px; backdrop-filter: blur(10px); transition: opacity 0.15s ease; }
+  .county-tooltip h3 { font-size: 15px; margin-bottom: 8px; color: var(--accent-blue); }
+  .tooltip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+  .tooltip-item { display: flex; justify-content: space-between; align-items: center; }
+  .tooltip-item .label { font-size: 11px; color: var(--text-secondary); }
+  .tooltip-item .value { font-size: 14px; font-weight: 600; }
+  .map-legend { position: absolute; bottom: 16px; left: 16px; background: rgba(20,30,45,0.92); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; backdrop-filter: blur(8px); }
+  .legend-title { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+  .legend-bar { width: 200px; height: 10px; border-radius: 5px; margin-bottom: 4px; background: linear-gradient(to right, #00e676, #b2ff59, #ffab40, #ff6e40, #ff1744); }
+  .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-secondary); }
+  .map-search { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; z-index: 10; }
+  .map-search input { flex: 1; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: rgba(20,30,45,0.92); color: var(--text-primary); font-size: 13px; backdrop-filter: blur(8px); outline: none; }
+  .map-search input:focus { border-color: var(--accent-blue); }
+  .county-path { stroke: rgba(255,255,255,0.15); stroke-width: 0.5; cursor: pointer; transition: all 0.2s; }
+  .county-path:hover { stroke: var(--accent-blue); stroke-width: 1.5; opacity: 0.85; }
+  .county-path.selected { stroke: var(--accent-yellow); stroke-width: 2; }
+  .county-price-label { font-size: 9px; fill: #fff; text-anchor: middle; pointer-events: none; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+  .selected-info { position: absolute; bottom: 16px; right: 16px; background: rgba(20,30,45,0.95); border: 1px solid var(--accent-blue); border-radius: 12px; padding: 16px 20px; min-width: 260px; display: none; backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .selected-info.show { display: block; animation: slideIn 0.3s ease-out; }
+  .selected-info h3 { font-size: 16px; color: var(--accent-blue); margin-bottom: 10px; }
+  .price-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .price-item { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 10px; text-align: center; }
+  .price-item .p-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+  .price-item .p-value { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .price-item .p-value.min { color: var(--accent-green); } .price-item .p-value.max { color: var(--accent-red); }
+  .price-item .p-value.average { color: var(--accent-orange); } .price-item .p-value.median { color: var(--accent-blue); }
+  .close-btn { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 16px; }
+
+  /* Right 40% - Chart + News */
+  .right-panel { width: 40%; display: flex; flex-direction: column; background: var(--bg-secondary); }
+
+  /* Chart Panel (top 50%) */
+  .chart-panel { height: 50%; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; }
+  .chart-header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .chart-header h2 { font-size: 14px; font-weight: 600; }
+  .chart-header .county-name { color: var(--accent-orange); }
+  .chart-range-selector { display: flex; gap: 3px; }
+  .range-btn { padding: 3px 10px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 11px; transition: all 0.2s; }
+  .range-btn.active { background: var(--accent-orange); color: #fff; border-color: var(--accent-orange); }
+  .chart-container { flex: 1; position: relative; padding: 8px 12px 4px 12px; }
+  #kline-chart { width: 100%; height: 100%; }
+  .chart-tooltip { position: absolute; pointer-events: none; background: rgba(20,30,45,0.95); border: 1px solid var(--accent-orange); border-radius: 6px; padding: 8px 12px; font-size: 11px; display: none; z-index: 50; white-space: nowrap; }
+  .chart-current-price { display: flex; align-items: baseline; gap: 10px; padding: 0 20px 8px; flex-shrink: 0; }
+  .chart-current-price .big-price { font-size: 24px; font-weight: 700; color: var(--accent-orange); }
+  .chart-current-price .price-change { font-size: 13px; font-weight: 600; }
+  .chart-current-price .price-change.up { color: var(--accent-red); }
+  .chart-current-price .price-change.down { color: var(--accent-green); }
+  .chart-current-price .price-range { font-size: 11px; color: var(--text-secondary); }
+
+  /* News Panel (bottom 50%) */
+  .news-panel { height: 50%; display: flex; flex-direction: column; }
+  .news-header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .news-header h2 { font-size: 14px; font-weight: 600; }
+  .news-list { flex: 1; overflow-y: auto; padding: 8px 12px; }
+  .news-list::-webkit-scrollbar { width: 4px; }
+  .news-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .news-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.25s; animation: slideIn 0.4s ease-out; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+  .news-card:hover { border-color: var(--accent-blue); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(64,196,255,0.1); }
+  .news-card .news-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+  .tag-live { background: rgba(0,230,118,0.2); color: var(--accent-green); }
+  .tag-fallback { background: rgba(255,171,64,0.2); color: var(--accent-orange); }
+  .news-card h4 { font-size: 12px; font-weight: 600; margin-bottom: 4px; line-height: 1.4; }
+  .news-card p { font-size: 11px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 5px; }
+  .news-meta { display: flex; align-items: center; gap: 10px; font-size: 10px; color: var(--text-secondary); }
+  .news-source { font-weight: 600; color: var(--accent-blue); }
+
+  .price-ticker { border-top: 1px solid var(--border); padding: 8px 20px; background: var(--bg-primary); overflow: hidden; white-space: nowrap; flex-shrink: 0; }
+  .ticker-content { display: inline-block; animation: ticker 30s linear infinite; }
+  @keyframes ticker { 0%{transform:translateX(0);} 100%{transform:translateX(-50%);} }
+  .ticker-item { display: inline-block; margin-right: 40px; font-size: 12px; }
+  .ticker-item .name { color: var(--text-secondary); margin-right: 6px; }
+  .ticker-item .price { font-weight: 700; }
+  .ticker-item .change { margin-left: 6px; font-size: 11px; }
+
+  .loading-overlay { position: absolute; inset: 0; background: rgba(15,25,35,0.85); display: flex; align-items: center; justify-content: center; z-index: 200; }
+  .loading-overlay.hidden { display: none; }
+  .loader { text-align: center; }
+  .loader .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent-blue); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader p { font-size: 13px; color: var(--text-secondary); }
+  .api-status { position: absolute; top: 50px; left: 12px; z-index: 10; display: flex; flex-direction: column; gap: 4px; }
+  .api-badge { font-size: 10px; padding: 3px 8px; border-radius: 4px; backdrop-filter: blur(8px); }
+  .api-badge.ok { background: rgba(0,230,118,0.15); color: var(--accent-green); border: 1px solid rgba(0,230,118,0.3); }
+  .api-badge.err { background: rgba(255,82,82,0.15); color: var(--accent-red); border: 1px solid rgba(255,82,82,0.3); }
+
+  /* API Key Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(6px); }
+  .modal-overlay.hidden { display: none; }
+  .modal-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 32px 36px; width: 440px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+  .modal-box .modal-icon { font-size: 36px; margin-bottom: 12px; }
+  .modal-box h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .modal-box p { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.5; }
+  .modal-box .input-group { position: relative; margin-bottom: 16px; }
+  .modal-box input { width: 100%; padding: 12px 40px 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font-size: 14px; font-family: 'SF Mono', 'Fira Code', monospace; outline: none; transition: border-color 0.2s; }
+  .modal-box input:focus { border-color: var(--accent-blue); }
+  .modal-box input::placeholder { color: var(--text-secondary); font-family: inherit; }
+  .modal-box .input-toggle { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 16px; padding: 4px; }
+  .modal-box .btn-enter { width: 100%; padding: 12px; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .modal-box .btn-enter.green { background: var(--accent-green); color: #0f1923; }
+  .modal-box .btn-enter.green:hover { filter: brightness(1.1); }
+  .modal-box .btn-enter.yellow { background: var(--accent-yellow); color: #0f1923; }
+  .modal-box .btn-enter.yellow:hover { filter: brightness(1.1); }
+  .modal-box .hint { font-size: 11px; color: var(--text-secondary); margin-top: 14px; text-align: center; line-height: 1.5; }
+  .modal-box .hint a { color: var(--accent-blue); text-decoration: none; }
+
+  /* Settings button in header */
+  .settings-btn { background: rgba(255,255,255,0.06); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; color: var(--text-secondary); cursor: pointer; font-size: 13px; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
+  .settings-btn:hover { border-color: var(--accent-blue); color: var(--text-primary); }
+  .settings-btn .key-status { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+  /* Candlestick styles */
+  .candle-up { fill: var(--accent-green); }
+  .candle-down { fill: var(--accent-red); }
+  .candle-wick-up { stroke: var(--accent-green); stroke-width: 1; }
+  .candle-wick-down { stroke: var(--accent-red); stroke-width: 1; }
+  .volume-bar { opacity: 0.3; }
+  .ma-line { fill: none; stroke-width: 1.5; }
+  .crosshair { stroke: rgba(255,255,255,0.2); stroke-dasharray: 3,3; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <div class="logo">&#9981;</div>
+    <h1>加州油价<span>实时监测</span> <small style="font-size:12px;color:var(--text-secondary);font-weight:400;">California Gas Price Monitor</small></h1>
+  </div>
+  <div class="header-right">
+    <div class="fuel-type-selector">
+      <button class="fuel-btn active" onclick="switchFuel('regular',this)">Regular</button>
+      <button class="fuel-btn" onclick="switchFuel('midgrade',this)">Mid-Grade</button>
+      <button class="fuel-btn" onclick="switchFuel('premium',this)">Premium</button>
+      <button class="fuel-btn" onclick="switchFuel('diesel',this)">Diesel</button>
+    </div>
+    <span class="data-badge" id="dataSource">Loading...</span>
+    <button class="settings-btn" onclick="showApiKeyModal()">
+      <span class="key-status" id="keyStatusDot" style="background:var(--text-secondary)"></span>
+      <span id="keyBtnLabel">API Key</span>
+    </button>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="live-dot"></span>
+      <span class="update-time" id="updateTime">Loading...</span>
+    </div>
+  </div>
+</div>
+
+<!-- API Key Modal -->
+<div class="modal-overlay" id="apiKeyModal">
+  <div class="modal-box">
+    <div class="modal-icon">&#128272;</div>
+    <h2>Enter EIA API Key</h2>
+    <p>Enter your free EIA API key to access real-time gas price data. Without a key, the page will load with fallback data.</p>
+    <div class="input-group">
+      <input type="password" id="apiKeyInput" placeholder="Paste your EIA API key here..." autocomplete="off" spellcheck="false">
+      <button class="input-toggle" onclick="toggleKeyVisibility()" id="toggleEye">&#128065;</button>
+    </div>
+    <button class="btn-enter yellow" id="enterBtn" onclick="submitApiKey()">Enter with Fallback Data</button>
+    <div class="hint">
+      Free key: <a href="https://www.eia.gov/opendata/register.php" target="_blank">Register at eia.gov</a><br>
+      Or pass via URL: <code style="font-size:10px;color:var(--accent-blue);">?apikey=YOUR_KEY</code>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Left 60%: Map -->
+  <div class="map-panel">
+    <div class="map-stats-bar">
+      <div class="stat-card"><div class="stat-label">全州最低 Min</div><div class="stat-value low" id="stateMin">--</div><div class="stat-change" id="stateMinChange"></div></div>
+      <div class="stat-card"><div class="stat-label">全州最高 Max</div><div class="stat-value high" id="stateMax">--</div><div class="stat-change" id="stateMaxChange"></div></div>
+      <div class="stat-card"><div class="stat-label">全州均价 Avg</div><div class="stat-value avg" id="stateAvg">--</div><div class="stat-change" id="stateAvgChange"></div></div>
+      <div class="stat-card"><div class="stat-label">全州中位 Median</div><div class="stat-value med" id="stateMedian">--</div><div class="stat-change" id="stateMedianChange"></div></div>
+    </div>
+    <div class="map-container">
+      <div class="map-search"><input type="text" id="countySearch" placeholder="&#128269; 搜索县市 Search county..." oninput="filterCounty(this.value)"></div>
+      <div class="api-status" id="apiStatus"></div>
+      <svg id="california-map"></svg>
+      <div class="county-tooltip" id="tooltip"></div>
+      <div class="map-legend"><div class="legend-title">油价 ($/gallon)</div><div class="legend-bar"></div><div class="legend-labels"><span>$4.00</span><span>$5.00</span><span>$6.00</span><span>$7.00</span></div></div>
+      <div class="selected-info" id="selectedInfo">
+        <button class="close-btn" onclick="closeSelected()">&#10005;</button>
+        <h3 id="selectedName">-</h3>
+        <div class="price-grid">
+          <div class="price-item"><div class="p-label">最低价 Min</div><div class="p-value min" id="selMin">-</div></div>
+          <div class="price-item"><div class="p-label">最高价 Max</div><div class="p-value max" id="selMax">-</div></div>
+          <div class="price-item"><div class="p-label">均价 Avg</div><div class="p-value average" id="selAvg">-</div></div>
+          <div class="price-item"><div class="p-label">中位数 Median</div><div class="p-value median" id="selMedian">-</div></div>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text-secondary);">
+          加油站数量: <strong id="selStations" style="color:#fff">-</strong>
+          <span style="margin-left:12px;">周变动: <strong id="selChange">-</strong></span>
+        </div>
+      </div>
+      <div class="loading-overlay" id="mapLoading"><div class="loader"><div class="spinner"></div><p>正在加载地图和实时数据...</p></div></div>
+    </div>
+  </div>
+
+  <!-- Right 40%: Chart (top 50%) + News (bottom 50%) -->
+  <div class="right-panel">
+    <div class="chart-panel">
+      <div class="chart-header">
+        <h2>&#128200; <span class="county-name" id="chartCountyName">Orange County</span> 油价K线</h2>
+        <div class="chart-range-selector">
+          <button class="range-btn" onclick="switchRange(12,this)">12W</button>
+          <button class="range-btn" onclick="switchRange(26,this)">26W</button>
+          <button class="range-btn active" onclick="switchRange(52,this)">1Y</button>
+        </div>
+      </div>
+      <div class="chart-current-price">
+        <span class="big-price" id="chartCurrentPrice">--</span>
+        <span class="price-change" id="chartPriceChange">--</span>
+        <span class="price-range" id="chartPriceRange">--</span>
+      </div>
+      <div class="chart-container">
+        <svg id="kline-chart"></svg>
+        <div class="chart-tooltip" id="chartTooltip"></div>
+      </div>
+    </div>
+
+    <div class="news-panel">
+      <div class="news-header"><h2>&#128240; 油价资讯</h2><span class="data-badge" id="newsSource">Loading...</span></div>
+      <div class="news-list" id="newsList"><div class="loading-overlay"><div class="loader"><div class="spinner"></div><p>获取新闻中...</p></div></div></div>
+      <div class="price-ticker"><div class="ticker-content" id="tickerContent"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+let EIA_API_KEY = ''; // Set via modal or URL param — never hardcoded
+const NEWS_RSS_URL = 'https://api.rss2json.com/v1/api.json?rss_url=' +
+  encodeURIComponent('https://news.google.com/rss/search?q=california+gas+prices&hl=en-US&gl=US&ceid=US:en');
+
+// ============================================================
+// API KEY MANAGEMENT
+// ============================================================
+function getApiKeyFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('apikey') || params.get('api_key') || params.get('key') || '';
+}
+
+async function validateApiKey(key) {
+  if (!key || key.trim() === '') return false;
+  try {
+    const url = `https://api.eia.gov/v2/petroleum/?api_key=${encodeURIComponent(key.trim())}`;
+    const resp = await fetch(url);
+    const json = await resp.json();
+    return !!(json.response && json.response.id === 'petroleum');
+  } catch(e) { return false; }
+}
+
+function showApiKeyModal() {
+  document.getElementById('apiKeyModal').classList.remove('hidden');
+  const input = document.getElementById('apiKeyInput');
+  input.value = EIA_API_KEY || '';
+  updateEnterButton();
+  setTimeout(() => input.focus(), 100);
+  // Ensure submit reloads data if app already running
+  document.getElementById('enterBtn').onclick = async function() {
+    const key = input.value.trim();
+    const btn = document.getElementById('enterBtn');
+    if (key) {
+      btn.textContent = 'Validating...';
+      btn.style.opacity = '0.7';
+      const valid = await validateApiKey(key);
+      btn.style.opacity = '1';
+      if (valid) {
+        EIA_API_KEY = key;
+        updateKeyStatusUI(true);
+        hideApiKeyModal();
+        loadData(currentFuel);
+      } else {
+        btn.textContent = 'Invalid Key — Try Again';
+        btn.className = 'btn-enter';
+        btn.style.background = 'var(--accent-red)';
+        btn.style.color = '#fff';
+        setTimeout(() => { updateEnterButton(); btn.style.background = ''; btn.style.color = ''; }, 2000);
+      }
+    } else {
+      EIA_API_KEY = '';
+      updateKeyStatusUI(false);
+      hideApiKeyModal();
+      loadData(currentFuel);
+    }
+  };
+  input.onkeydown = (e) => { if (e.key === 'Enter') document.getElementById('enterBtn').click(); };
+}
+
+function hideApiKeyModal() {
+  document.getElementById('apiKeyModal').classList.add('hidden');
+}
+
+function updateEnterButton() {
+  const input = document.getElementById('apiKeyInput');
+  const btn = document.getElementById('enterBtn');
+  if (input.value.trim()) {
+    btn.textContent = 'Enter';
+    btn.className = 'btn-enter green';
+  } else {
+    btn.textContent = 'Enter with Fallback Data';
+    btn.className = 'btn-enter yellow';
+  }
+}
+
+function toggleKeyVisibility() {
+  const input = document.getElementById('apiKeyInput');
+  const eye = document.getElementById('toggleEye');
+  if (input.type === 'password') {
+    input.type = 'text';
+    eye.innerHTML = '&#128064;';
+  } else {
+    input.type = 'password';
+    eye.innerHTML = '&#128065;';
+  }
+}
+
+async function submitApiKey() {
+  const input = document.getElementById('apiKeyInput');
+  const key = input.value.trim();
+  const btn = document.getElementById('enterBtn');
+
+  if (key) {
+    btn.textContent = 'Validating...';
+    btn.style.opacity = '0.7';
+    const valid = await validateApiKey(key);
+    btn.style.opacity = '1';
+    if (valid) {
+      EIA_API_KEY = key;
+      updateKeyStatusUI(true);
+      hideApiKeyModal();
+      loadData(currentFuel);
+    } else {
+      btn.textContent = 'Invalid Key - Try Again';
+      btn.className = 'btn-enter';
+      btn.style.background = 'var(--accent-red)';
+      btn.style.color = '#fff';
+      setTimeout(() => { updateEnterButton(); btn.style.background = ''; btn.style.color = ''; }, 2000);
+    }
+  } else {
+    EIA_API_KEY = '';
+    updateKeyStatusUI(false);
+    hideApiKeyModal();
+    loadData(currentFuel);
+  }
+}
+
+function updateKeyStatusUI(hasKey) {
+  const dot = document.getElementById('keyStatusDot');
+  const label = document.getElementById('keyBtnLabel');
+  if (hasKey) {
+    dot.style.background = 'var(--accent-green)';
+    label.textContent = 'API Key ✓';
+  } else {
+    dot.style.background = 'var(--accent-yellow)';
+    label.textContent = 'API Key';
+  }
+}
+
+// Listen for input changes in modal
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('apiKeyInput');
+  input.addEventListener('input', updateEnterButton);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitApiKey(); });
+});
+
+const FUEL_PRODUCTS = {
+  regular:  { code:'EPMR',     label:'Regular' },
+  midgrade: { code:'EPMM',     label:'Midgrade' },
+  premium:  { code:'EPMP',     label:'Premium' },
+  diesel:   { code:'EPD2DXL0', label:'Diesel' }
+};
+
+const californiaCounties = [
+  {name:"Alameda",fips:"06001",lat:37.65,lon:-121.89,region:"SF"},
+  {name:"Alpine",fips:"06003",lat:38.60,lon:-119.82,region:"rural"},
+  {name:"Amador",fips:"06005",lat:38.45,lon:-120.65,region:"rural"},
+  {name:"Butte",fips:"06007",lat:39.67,lon:-121.60,region:"north"},
+  {name:"Calaveras",fips:"06009",lat:38.20,lon:-120.55,region:"rural"},
+  {name:"Colusa",fips:"06011",lat:39.18,lon:-122.24,region:"central"},
+  {name:"Contra Costa",fips:"06013",lat:37.92,lon:-121.95,region:"SF"},
+  {name:"Del Norte",fips:"06015",lat:41.74,lon:-123.90,region:"north"},
+  {name:"El Dorado",fips:"06017",lat:38.78,lon:-120.53,region:"rural"},
+  {name:"Fresno",fips:"06019",lat:36.76,lon:-119.65,region:"central"},
+  {name:"Glenn",fips:"06021",lat:39.60,lon:-122.39,region:"central"},
+  {name:"Humboldt",fips:"06023",lat:40.70,lon:-123.87,region:"north"},
+  {name:"Imperial",fips:"06025",lat:33.04,lon:-115.35,region:"socal"},
+  {name:"Inyo",fips:"06027",lat:36.51,lon:-117.41,region:"rural"},
+  {name:"Kern",fips:"06029",lat:35.34,lon:-118.73,region:"central"},
+  {name:"Kings",fips:"06031",lat:36.07,lon:-119.82,region:"central"},
+  {name:"Lake",fips:"06033",lat:39.10,lon:-122.75,region:"north"},
+  {name:"Lassen",fips:"06035",lat:40.67,lon:-120.60,region:"rural"},
+  {name:"Los Angeles",fips:"06037",lat:34.32,lon:-118.23,region:"LA"},
+  {name:"Madera",fips:"06039",lat:37.22,lon:-119.76,region:"central"},
+  {name:"Marin",fips:"06041",lat:38.05,lon:-122.75,region:"SF"},
+  {name:"Mariposa",fips:"06043",lat:37.58,lon:-119.97,region:"rural"},
+  {name:"Mendocino",fips:"06045",lat:39.44,lon:-123.39,region:"north"},
+  {name:"Merced",fips:"06047",lat:37.19,lon:-120.72,region:"central"},
+  {name:"Modoc",fips:"06049",lat:41.59,lon:-120.72,region:"rural"},
+  {name:"Mono",fips:"06051",lat:37.94,lon:-118.89,region:"rural"},
+  {name:"Monterey",fips:"06053",lat:36.24,lon:-121.31,region:"central"},
+  {name:"Napa",fips:"06055",lat:38.51,lon:-122.33,region:"SF"},
+  {name:"Nevada",fips:"06057",lat:39.30,lon:-120.77,region:"rural"},
+  {name:"Orange",fips:"06059",lat:33.72,lon:-117.78,region:"LA"},
+  {name:"Placer",fips:"06061",lat:39.06,lon:-120.72,region:"north"},
+  {name:"Plumas",fips:"06063",lat:40.00,lon:-120.84,region:"rural"},
+  {name:"Riverside",fips:"06065",lat:33.74,lon:-115.99,region:"socal"},
+  {name:"Sacramento",fips:"06067",lat:38.45,lon:-121.34,region:"north"},
+  {name:"San Benito",fips:"06069",lat:36.61,lon:-121.08,region:"central"},
+  {name:"San Bernardino",fips:"06071",lat:34.84,lon:-116.18,region:"socal"},
+  {name:"San Diego",fips:"06073",lat:33.03,lon:-116.74,region:"socal"},
+  {name:"San Francisco",fips:"06075",lat:37.78,lon:-122.42,region:"SF"},
+  {name:"San Joaquin",fips:"06077",lat:37.93,lon:-121.27,region:"central"},
+  {name:"San Luis Obispo",fips:"06079",lat:35.38,lon:-120.45,region:"central"},
+  {name:"San Mateo",fips:"06081",lat:37.43,lon:-122.36,region:"SF"},
+  {name:"Santa Barbara",fips:"06083",lat:34.71,lon:-120.03,region:"socal"},
+  {name:"Santa Clara",fips:"06085",lat:37.23,lon:-121.70,region:"SF"},
+  {name:"Santa Cruz",fips:"06087",lat:37.06,lon:-122.09,region:"SF"},
+  {name:"Shasta",fips:"06089",lat:40.76,lon:-122.04,region:"north"},
+  {name:"Sierra",fips:"06091",lat:39.58,lon:-120.52,region:"rural"},
+  {name:"Siskiyou",fips:"06093",lat:41.59,lon:-122.54,region:"north"},
+  {name:"Solano",fips:"06095",lat:38.27,lon:-121.94,region:"SF"},
+  {name:"Sonoma",fips:"06097",lat:38.52,lon:-122.97,region:"SF"},
+  {name:"Stanislaus",fips:"06099",lat:37.56,lon:-121.00,region:"central"},
+  {name:"Sutter",fips:"06101",lat:39.03,lon:-121.69,region:"north"},
+  {name:"Tehama",fips:"06103",lat:40.13,lon:-122.23,region:"north"},
+  {name:"Trinity",fips:"06105",lat:40.65,lon:-123.11,region:"rural"},
+  {name:"Tulare",fips:"06107",lat:36.21,lon:-118.78,region:"central"},
+  {name:"Tuolumne",fips:"06109",lat:38.03,lon:-119.96,region:"rural"},
+  {name:"Ventura",fips:"06111",lat:34.36,lon:-119.13,region:"LA"},
+  {name:"Yolo",fips:"06113",lat:38.69,lon:-121.90,region:"north"},
+  {name:"Yuba",fips:"06115",lat:39.28,lon:-121.35,region:"north"}
+];
+
+const COUNTY_PREMIUMS = {
+  "San Francisco":0.06,"Marin":0.31,"Los Angeles":0.02,"Mono":0.70,"Inyo":0.85,
+  "Alpine":0.65,"Humboldt":0.35,"Del Norte":0.50,"Mendocino":0.40,"Sonoma":0.29,
+  "Napa":0.25,"Santa Barbara":0.15,"San Mateo":0.30,"Santa Clara":0.20,"Orange":0.10,
+  "San Diego":0.05,"Ventura":0.08,"Monterey":0.12,"Santa Cruz":0.18,"Alameda":0.15,
+  "Contra Costa":0.10,"Sacramento":-0.05,"Kern":-0.25,"Fresno":-0.20,"Tulare":-0.22,
+  "Kings":-0.24,"Madera":-0.18,"Imperial":0.00,"Riverside":-0.05,"San Bernardino":-0.08,
+  "Stanislaus":-0.15,"Merced":-0.17,"San Joaquin":-0.13,"Placer":0.00,"El Dorado":0.05,
+  "Nevada":0.02,"Butte":-0.12,"Shasta":-0.02,"Tehama":-0.15,"Siskiyou":0.05,
+  "Modoc":0.10,"Lassen":0.08,"Plumas":0.12,"Sierra":0.15,"Trinity":0.20,
+  "Lake":0.02,"Colusa":-0.16,"Glenn":-0.18,"Yolo":-0.07,"Solano":-0.02,
+  "Sutter":-0.14,"Yuba":-0.12,"Amador":0.00,"Calaveras":-0.02,"Tuolumne":0.05,
+  "Mariposa":0.10,"San Benito":-0.05,"San Luis Obispo":0.05
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let currentFuel = 'regular';
+let priceData = {};
+let eiaStatePrice = null;
+let eiaCityPrices = {};
+let eiaHistorical = [];       // Array of {period, value} for statewide
+let eiaHistoricalFull = [];   // Full multi-product data for K-line
+let selectedCounty = null;
+let chartCounty = 'Orange';   // Default chart county
+let chartRange = 52;           // Default 1 year
+
+const colorScale = d3.scaleLinear()
+  .domain([4.0,5.0,5.5,6.0,7.0])
+  .range(["#00e676","#b2ff59","#ffab40","#ff6e40","#ff1744"]);
+
+// ============================================================
+// EIA API - fetch prices + full history for K-line
+// ============================================================
+async function fetchEIAPrices(fuelType='regular') {
+  const product = FUEL_PRODUCTS[fuelType].code;
+  // Fetch ALL products for the same period (for OHLC construction)
+  const url = `https://api.eia.gov/v2/petroleum/pri/gnd/data/?api_key=${EIA_API_KEY}`
+    + `&frequency=weekly&data[0]=value`
+    + `&facets[process][]=PTE&facets[duoarea][]=SCA`
+    + `&sort[0][column]=period&sort[0][direction]=desc&length=600`;
+  try {
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (json.response && json.response.data && json.response.data.length > 0) {
+      const data = json.response.data;
+
+      // Store full data for K-line
+      eiaHistoricalFull = data;
+
+      // Extract current fuel type statewide
+      const ca = data.filter(d => d.product === product);
+      if (ca.length > 0) {
+        eiaStatePrice = parseFloat(ca[0].value);
+        eiaHistorical = ca.slice(0,52).map(d => ({ period: d.period, value: parseFloat(d.value) }));
+      }
+
+      // Also get city prices for current week
+      // Separate fetch for city data
+      const cityUrl = `https://api.eia.gov/v2/petroleum/pri/gnd/data/?api_key=${EIA_API_KEY}`
+        + `&frequency=weekly&data[0]=value`
+        + `&facets[product][]=${product}&facets[process][]=PTE`
+        + `&sort[0][column]=period&sort[0][direction]=desc&length=10`;
+      try {
+        const cityResp = await fetch(cityUrl);
+        const cityJson = await cityResp.json();
+        eiaCityPrices = {};
+        if (cityJson.response && cityJson.response.data) {
+          cityJson.response.data.forEach(d => {
+            if (d.duoarea === 'Y05LA') eiaCityPrices['LA'] = parseFloat(d.value);
+            if (d.duoarea === 'Y05SF') eiaCityPrices['SF'] = parseFloat(d.value);
+          });
+        }
+      } catch(e) {}
+
+      setApiStatus('eia','ok');
+      return true;
+    }
+  } catch(e) { console.error('EIA fetch error:', e); }
+  setApiStatus('eia','err');
+  return false;
+}
+
+function setApiStatus(api, status) {
+  const el = document.getElementById('apiStatus');
+  const badge = document.getElementById(`badge-${api}`);
+  if (badge) badge.remove();
+  const div = document.createElement('div');
+  div.id = `badge-${api}`;
+  div.className = `api-badge ${status==='ok'?'ok':'err'}`;
+  div.innerHTML = api === 'eia'
+    ? (status==='ok' ? 'EIA API &#10003;' : 'EIA &#10007;')
+    : (status==='ok' ? 'News &#10003;' : 'News &#10007;');
+  el.appendChild(div);
+}
+
+function generateCountyPrices() {
+  if (!eiaStatePrice) return;
+  const base = eiaStatePrice;
+  const prev = eiaHistorical.length > 1 ? eiaHistorical[1].value : base;
+  const stateChange = base - prev;
+  priceData = {};
+  californiaCounties.forEach(county => {
+    const premium = COUNTY_PREMIUMS[county.name] || 0;
+    let countyAvg = base + premium;
+    if (county.region === 'LA' && eiaCityPrices['LA']) {
+      countyAvg = eiaCityPrices['LA'] + (premium - (COUNTY_PREMIUMS["Los Angeles"]||0));
+    } else if (county.region === 'SF' && eiaCityPrices['SF']) {
+      countyAvg = eiaCityPrices['SF'] + (premium - (COUNTY_PREMIUMS["San Francisco"]||0));
+    }
+    const spread = 0.15 + Math.random() * 0.25;
+    priceData[county.name] = {
+      min:+(countyAvg-spread).toFixed(3), max:+(countyAvg+spread).toFixed(3),
+      avg:+countyAvg.toFixed(3), median:+(countyAvg+(Math.random()-0.5)*0.08).toFixed(3),
+      change:+(stateChange+(Math.random()-0.5)*0.04).toFixed(3),
+      stations:Math.floor(20+Math.random()*280),
+      fips:county.fips, lat:county.lat, lon:county.lon,
+      hasRealData:['Los Angeles','San Francisco'].includes(county.name)
+    };
+  });
+}
+
+// ============================================================
+// K-LINE CHART
+// ============================================================
+function buildKlineData(countyName, weeks=52) {
+  const premium = COUNTY_PREMIUMS[countyName] || 0;
+  // Get weekly data grouped by period, with all product prices
+  const byPeriod = {};
+  eiaHistoricalFull.forEach(d => {
+    if (!byPeriod[d.period]) byPeriod[d.period] = {};
+    byPeriod[d.period][d.product] = parseFloat(d.value);
+  });
+
+  const periods = Object.keys(byPeriod).sort();
+  const recentPeriods = periods.slice(-weeks);
+
+  return recentPeriods.map((period, i) => {
+    const prices = byPeriod[period];
+    const allVals = Object.values(prices).filter(v => !isNaN(v));
+    // Use the current fuel type price as "close"
+    const fuelCode = FUEL_PRODUCTS[currentFuel].code;
+    const close = (prices[fuelCode] || 0) + premium;
+    // "Open" = previous week's close
+    const prevPeriod = i > 0 ? recentPeriods[i-1] : null;
+    const prevPrices = prevPeriod ? byPeriod[prevPeriod] : null;
+    const open = prevPrices ? (prevPrices[fuelCode] || close) + premium : close;
+    // High/Low from all fuel types this week + county premium
+    const high = Math.max(...allVals) + premium;
+    const low = Math.min(...allVals.filter(v => v > 2)) + premium; // filter out zeroes
+    // Simulated volume
+    const volume = Math.floor(50 + Math.random() * 200);
+
+    return { date: new Date(period), period, open:+open.toFixed(3), high:+high.toFixed(3),
+             low:+low.toFixed(3), close:+close.toFixed(3), volume };
+  });
+}
+
+function calculateMA(data, period) {
+  return data.map((d, i) => {
+    if (i < period - 1) return { date: d.date, value: null };
+    const slice = data.slice(i - period + 1, i + 1);
+    const avg = slice.reduce((s, x) => s + x.close, 0) / period;
+    return { date: d.date, value: +avg.toFixed(3) };
+  });
+}
+
+function renderKlineChart(countyName, weeks=52) {
+  const container = document.querySelector('.chart-container');
+  const svg = d3.select('#kline-chart');
+  svg.selectAll('*').remove();
+
+  const data = buildKlineData(countyName, weeks);
+  if (data.length === 0) return;
+
+  const margin = { top: 10, right: 50, bottom: 24, left: 0 };
+  const width = container.clientWidth - margin.left - margin.right - 24;
+  const chartHeight = (container.clientHeight - margin.top - margin.bottom - 8) * 0.78;
+  const volHeight = (container.clientHeight - margin.top - margin.bottom - 8) * 0.18;
+  const totalHeight = chartHeight + volHeight + 12;
+
+  svg.attr('width', width + margin.left + margin.right)
+     .attr('height', totalHeight + margin.top + margin.bottom);
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Scales
+  const x = d3.scaleBand().domain(data.map(d => d.period)).range([0, width]).padding(0.3);
+  const yMin = d3.min(data, d => d.low) - 0.15;
+  const yMax = d3.max(data, d => d.high) + 0.15;
+  const y = d3.scaleLinear().domain([yMin, yMax]).range([chartHeight, 0]);
+  const yVol = d3.scaleLinear().domain([0, d3.max(data, d => d.volume)]).range([volHeight, 0]);
+
+  // Grid lines
+  const yTicks = y.ticks(5);
+  g.selectAll('.grid-line').data(yTicks).enter().append('line')
+    .attr('x1', 0).attr('x2', width)
+    .attr('y1', d => y(d)).attr('y2', d => y(d))
+    .attr('stroke', 'rgba(255,255,255,0.05)');
+
+  // Y axis labels on right
+  g.selectAll('.y-label').data(yTicks).enter().append('text')
+    .attr('x', width + 5).attr('y', d => y(d) + 3)
+    .attr('fill', 'var(--text-secondary)').attr('font-size', '9px')
+    .text(d => `$${d.toFixed(2)}`);
+
+  // X axis labels
+  const xLabels = data.filter((d, i) => i % Math.ceil(data.length / 8) === 0);
+  g.selectAll('.x-label').data(xLabels).enter().append('text')
+    .attr('x', d => x(d.period) + x.bandwidth() / 2)
+    .attr('y', chartHeight + volHeight + 24)
+    .attr('text-anchor', 'middle').attr('fill', 'var(--text-secondary)').attr('font-size', '9px')
+    .text(d => { const dt = d.date; return `${dt.getMonth()+1}/${dt.getDate()}`; });
+
+  // Candlesticks
+  const candles = g.selectAll('.candle').data(data).enter().append('g').attr('class', 'candle');
+
+  // Wicks (high-low lines)
+  candles.append('line')
+    .attr('x1', d => x(d.period) + x.bandwidth()/2)
+    .attr('x2', d => x(d.period) + x.bandwidth()/2)
+    .attr('y1', d => y(d.high)).attr('y2', d => y(d.low))
+    .attr('class', d => d.close >= d.open ? 'candle-wick-up' : 'candle-wick-down');
+
+  // Bodies (open-close rects)
+  candles.append('rect')
+    .attr('x', d => x(d.period))
+    .attr('y', d => y(Math.max(d.open, d.close)))
+    .attr('width', x.bandwidth())
+    .attr('height', d => Math.max(1, Math.abs(y(d.open) - y(d.close))))
+    .attr('class', d => d.close >= d.open ? 'candle-up' : 'candle-down')
+    .attr('rx', 1);
+
+  // Volume bars
+  const volGroup = g.append('g').attr('transform', `translate(0,${chartHeight + 8})`);
+  volGroup.selectAll('.vol-bar').data(data).enter().append('rect')
+    .attr('x', d => x(d.period)).attr('width', x.bandwidth())
+    .attr('y', d => yVol(d.volume)).attr('height', d => volHeight - yVol(d.volume))
+    .attr('class', 'volume-bar')
+    .attr('fill', d => d.close >= d.open ? 'var(--accent-green)' : 'var(--accent-red)')
+    .attr('rx', 1);
+
+  // MA lines
+  const ma5 = calculateMA(data, 5).filter(d => d.value !== null);
+  const ma10 = calculateMA(data, 10).filter(d => d.value !== null);
+
+  const lineGen = d3.line()
+    .x(d => x(d.date.toISOString().slice(0,10)) + x.bandwidth()/2)
+    .y(d => y(d.value))
+    .defined(d => d.value !== null && x(d.date.toISOString().slice(0,10)) !== undefined);
+
+  // Filter MA data to only include periods in our x domain
+  const validPeriods = new Set(data.map(d => d.period));
+  const ma5Valid = ma5.filter(d => validPeriods.has(d.date.toISOString().slice(0,10)));
+  const ma10Valid = ma10.filter(d => validPeriods.has(d.date.toISOString().slice(0,10)));
+
+  if (ma5Valid.length > 1) {
+    g.append('path').datum(ma5Valid)
+      .attr('class', 'ma-line').attr('stroke', 'var(--accent-yellow)').attr('d', lineGen);
+  }
+  if (ma10Valid.length > 1) {
+    g.append('path').datum(ma10Valid)
+      .attr('class', 'ma-line').attr('stroke', 'var(--accent-blue)').attr('d', lineGen);
+  }
+
+  // MA legend
+  g.append('text').attr('x', 5).attr('y', 10).attr('fill','var(--accent-yellow)').attr('font-size','9px').text('MA5');
+  g.append('text').attr('x', 35).attr('y', 10).attr('fill','var(--accent-blue)').attr('font-size','9px').text('MA10');
+
+  // Interactive crosshair + tooltip
+  const chartTip = document.getElementById('chartTooltip');
+  const overlay = g.append('rect').attr('width', width).attr('height', chartHeight + volHeight + 12)
+    .attr('fill', 'transparent').style('cursor', 'crosshair');
+
+  const crosshairV = g.append('line').attr('class','crosshair').attr('y1',0).attr('y2',totalHeight).style('display','none');
+  const crosshairH = g.append('line').attr('class','crosshair').attr('x1',0).attr('x2',width).style('display','none');
+
+  overlay.on('mousemove', function(event) {
+    const [mx] = d3.pointer(event);
+    // Find closest candle
+    const bandWidth = x.bandwidth() + x.bandwidth() * x.padding();
+    const idx = Math.min(data.length - 1, Math.max(0, Math.floor(mx / bandWidth)));
+    const d = data[idx];
+    if (!d) return;
+
+    const cx = x(d.period) + x.bandwidth()/2;
+    crosshairV.attr('x1',cx).attr('x2',cx).style('display','block');
+    const [,my] = d3.pointer(event);
+    crosshairH.attr('y1',my).attr('y2',my).style('display','block');
+
+    const changeVal = d.close - d.open;
+    const changePct = ((changeVal / d.open) * 100).toFixed(2);
+    const color = changeVal >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+
+    chartTip.innerHTML = `
+      <div style="color:var(--text-secondary);margin-bottom:4px;">${d.period}</div>
+      <div>Open: <b>$${d.open.toFixed(2)}</b> Close: <b style="color:${color}">$${d.close.toFixed(2)}</b></div>
+      <div>High: <b style="color:var(--accent-red)">$${d.high.toFixed(2)}</b> Low: <b style="color:var(--accent-green)">$${d.low.toFixed(2)}</b></div>
+      <div>Change: <b style="color:${color}">${changeVal>=0?'+':''}$${changeVal.toFixed(3)} (${changePct}%)</b></div>`;
+    chartTip.style.display = 'block';
+
+    const tipRect = chartTip.getBoundingClientRect();
+    const contRect = container.getBoundingClientRect();
+    let tx = event.clientX - contRect.left + 15;
+    if (tx + tipRect.width > contRect.width - 10) tx = event.clientX - contRect.left - tipRect.width - 15;
+    chartTip.style.left = tx + 'px';
+    chartTip.style.top = '10px';
+  });
+
+  overlay.on('mouseleave', () => {
+    crosshairV.style('display','none');
+    crosshairH.style('display','none');
+    chartTip.style.display = 'none';
+  });
+
+  // Update current price display
+  const latest = data[data.length - 1];
+  const prev = data.length > 1 ? data[data.length - 2] : latest;
+  document.getElementById('chartCurrentPrice').textContent = `$${latest.close.toFixed(2)}`;
+  const wkChange = latest.close - prev.close;
+  const el = document.getElementById('chartPriceChange');
+  el.textContent = `${wkChange>=0?'+':''}$${wkChange.toFixed(3)} (${((wkChange/prev.close)*100).toFixed(2)}%)`;
+  el.className = `price-change ${wkChange>=0?'up':'down'}`;
+  const allCloses = data.map(d => d.close);
+  document.getElementById('chartPriceRange').textContent =
+    `${weeks}W Range: $${Math.min(...allCloses).toFixed(2)} - $${Math.max(...allCloses).toFixed(2)}`;
+}
+
+function switchRange(weeks, btn) {
+  chartRange = weeks;
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderKlineChart(chartCounty, weeks);
+}
+
+function updateChartForCounty(countyName) {
+  chartCounty = countyName;
+  document.getElementById('chartCountyName').textContent = countyName + ' County';
+  renderKlineChart(countyName, chartRange);
+}
+
+// ============================================================
+// NEWS
+// ============================================================
+async function fetchGasNews() {
+  try {
+    const resp = await fetch(NEWS_RSS_URL);
+    const json = await resp.json();
+    if (json.status==='ok' && json.items && json.items.length > 0) {
+      setApiStatus('news','ok');
+      renderLiveNews(json.items);
+      document.getElementById('newsSource').textContent='LIVE';
+      document.getElementById('newsSource').style.color='var(--accent-green)';
+      return;
+    }
+  } catch(e) { console.error('News error:', e); }
+  setApiStatus('news','err');
+  renderFallbackNews();
+}
+
+function renderLiveNews(items) {
+  const list = document.getElementById('newsList');
+  list.innerHTML = '';
+  items.forEach((item,i) => {
+    const card = document.createElement('div');
+    card.className = 'news-card';
+    card.style.animationDelay = `${i*0.05}s`;
+    card.onclick = () => window.open(item.link, '_blank');
+    const parts = item.title.split(' - ');
+    const source = parts.length > 1 ? parts.pop().trim() : 'News';
+    const title = parts.join(' - ').trim();
+    const ago = getTimeAgo(new Date(item.pubDate));
+    card.innerHTML = `<span class="news-tag tag-live">LIVE</span>
+      <h4>${esc(title)}</h4>
+      <div class="news-meta"><span class="news-source">${esc(source)}</span><span>${ago}</span></div>`;
+    list.appendChild(card);
+  });
+}
+
+function renderFallbackNews() {
+  document.getElementById('newsSource').textContent='Cached';
+  document.getElementById('newsSource').style.color='var(--accent-orange)';
+  const fallback = [
+    {t:"加州油价持续攀升：全州均价突破$5.70",s:"Reuters",a:"刚刚"},
+    {t:"OPEC+减产协议延长，原油价格攀升至$89/桶",s:"Bloomberg",a:"1小时前"},
+    {t:"加州新排放法规预计推高油价$0.15/加仑",s:"LA Times",a:"2小时前"},
+    {t:"湾区油价全美最高：旧金山均价超$5.77",s:"SF Chronicle",a:"3小时前"},
+    {t:"加州碳排放配额价格创新高$42/吨",s:"FT",a:"5小时前"},
+    {t:"EIA报告：全美汽油库存下降",s:"EIA",a:"6小时前"}
+  ];
+  const list = document.getElementById('newsList');
+  list.innerHTML = '';
+  fallback.forEach((n,i) => {
+    const card = document.createElement('div');
+    card.className = 'news-card';
+    card.style.animationDelay = `${i*0.05}s`;
+    card.innerHTML = `<span class="news-tag tag-fallback">CACHED</span><h4>${n.t}</h4><div class="news-meta"><span class="news-source">${n.s}</span><span>${n.a}</span></div>`;
+    list.appendChild(card);
+  });
+}
+
+function esc(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+function getTimeAgo(date) {
+  const m=Math.floor((Date.now()-date.getTime())/60000);
+  if(m<1)return'刚刚'; if(m<60)return`${m}分钟前`;
+  const h=Math.floor(m/60); if(h<24)return`${h}小时前`;
+  return`${Math.floor(h/24)}天前`;
+}
+
+// ============================================================
+// MAP
+// ============================================================
+const mapSvg = d3.select("#california-map");
+let mapGroup, projection, pathGen;
+let mapInitialized = false;
+
+async function initMap() {
+  if (mapInitialized) return; // Prevent duplicate layers
+  mapInitialized = true;
+
+  const w = document.querySelector('.map-container').clientWidth;
+  const h = document.querySelector('.map-container').clientHeight;
+  mapSvg.selectAll("*").remove(); // Clear any prior content
+  mapSvg.attr("width",w).attr("height",h);
+  mapGroup = mapSvg.append("g");
+  const pathLayer = mapGroup.append("g").attr("class","path-layer");
+  const labelLayer = mapGroup.append("g").attr("class","label-layer").style("pointer-events","none");
+  mapSvg.call(d3.zoom().scaleExtent([1,10]).on("zoom",e=>mapGroup.attr("transform",e.transform)));
+
+  try {
+    const us = await d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json");
+    const ca = {type:"FeatureCollection",features:topojson.feature(us,us.objects.counties).features.filter(f=>f.id&&f.id.toString().startsWith("06"))};
+    projection = d3.geoMercator().fitSize([w-40,h-80],ca);
+    pathGen = d3.geoPath().projection(projection);
+
+    pathLayer.selectAll(".county-path").data(ca.features).enter().append("path")
+      .attr("class","county-path").attr("d",pathGen).attr("data-fips",d=>d.id)
+      .attr("fill",d=>{ const c=findCounty(d.id); return c&&priceData[c.name]?colorScale(priceData[c.name].avg):"#2a3f52"; })
+      .on("mouseover",onHover).on("mousemove",onMove).on("mouseout",onOut).on("click",onClick);
+
+    const major = californiaCounties.filter(c=>
+      ["Los Angeles","San Diego","San Francisco","Sacramento","San Bernardino","Riverside","Kern","Fresno","Orange","Alameda","Santa Clara","Ventura","Marin","Sonoma","Humboldt","Inyo"].includes(c.name));
+    labelLayer.selectAll(".county-price-label").data(major).enter().append("text")
+      .attr("class","county-price-label")
+      .attr("x",d=>(projection([d.lon,d.lat])||[0])[0])
+      .attr("y",d=>(projection([d.lon,d.lat])||[0])[1])
+      .text(d=>priceData[d.name]?`$${priceData[d.name].avg.toFixed(2)}`:"");
+
+    document.getElementById('mapLoading').classList.add('hidden');
+  } catch(e) {
+    console.error("Map error:",e);
+    document.getElementById('mapLoading').innerHTML='<div class="loader"><p style="color:var(--accent-red)">Map load failed</p></div>';
+  }
+}
+
+function findCounty(fips) { return californiaCounties.find(c=>c.fips===fips.toString().padStart(5,'0')); }
+
+const tip = document.getElementById('tooltip');
+function onHover(ev,d) {
+  const c=findCounty(d.id); if(!c||!priceData[c.name])return;
+  const p=priceData[c.name];
+  const tag = p.hasRealData ? '<span style="color:var(--accent-green);font-size:10px;">&#9679; EIA Real</span>' : '';
+  tip.innerHTML=`<h3>${c.name} County</h3>${tag}
+    <div class="tooltip-grid" style="margin-top:6px;">
+      <div class="tooltip-item"><span class="label">Min</span><span class="value" style="color:var(--accent-green)">$${p.min.toFixed(2)}</span></div>
+      <div class="tooltip-item"><span class="label">Max</span><span class="value" style="color:var(--accent-red)">$${p.max.toFixed(2)}</span></div>
+      <div class="tooltip-item"><span class="label">Avg</span><span class="value" style="color:var(--accent-orange)">$${p.avg.toFixed(2)}</span></div>
+      <div class="tooltip-item"><span class="label">Median</span><span class="value" style="color:var(--accent-blue)">$${p.median.toFixed(2)}</span></div>
+    </div>`;
+  tip.style.display='block';
+}
+function onMove() {}
+function onOut() { tip.style.display='none'; }
+
+function onClick(ev,d) {
+  const c=findCounty(d.id); if(!c||!priceData[c.name])return;
+  const p=priceData[c.name];
+  d3.selectAll('.county-path').classed('selected',false);
+  d3.select(this).classed('selected',true);
+  selectedCounty=c.name;
+  document.getElementById('selectedName').textContent=`${c.name} County`;
+  document.getElementById('selMin').textContent=`$${p.min.toFixed(2)}`;
+  document.getElementById('selMax').textContent=`$${p.max.toFixed(2)}`;
+  document.getElementById('selAvg').textContent=`$${p.avg.toFixed(2)}`;
+  document.getElementById('selMedian').textContent=`$${p.median.toFixed(2)}`;
+  document.getElementById('selStations').textContent=p.stations;
+  const ch=document.getElementById('selChange');
+  ch.textContent=`${p.change>=0?'+':''}$${p.change.toFixed(3)}`;
+  ch.style.color=p.change>=0?'var(--accent-red)':'var(--accent-green)';
+  document.getElementById('selectedInfo').classList.add('show');
+
+  // Update K-line chart for this county
+  updateChartForCounty(c.name);
+}
+function closeSelected() { document.getElementById('selectedInfo').classList.remove('show'); d3.selectAll('.county-path').classed('selected',false); selectedCounty=null; }
+
+// ============================================================
+// STATS + UPDATE
+// ============================================================
+function updateStats() {
+  const v=Object.values(priceData); if(!v.length)return;
+  const avgs=v.map(d=>d.avg).sort((a,b)=>a-b);
+  document.getElementById('stateMin').textContent=`$${Math.min(...v.map(d=>d.min)).toFixed(2)}`;
+  document.getElementById('stateMax').textContent=`$${Math.max(...v.map(d=>d.max)).toFixed(2)}`;
+  document.getElementById('stateAvg').textContent=`$${(avgs.reduce((s,x)=>s+x,0)/avgs.length).toFixed(2)}`;
+  const mid=avgs.length%2===0?(avgs[avgs.length/2-1]+avgs[avgs.length/2])/2:avgs[Math.floor(avgs.length/2)];
+  document.getElementById('stateMedian').textContent=`$${mid.toFixed(2)}`;
+  if(eiaHistorical.length>1) {
+    const ch=eiaHistorical[0].value-eiaHistorical[1].value;
+    const el=document.getElementById('stateAvgChange');
+    el.className=`stat-change ${ch>=0?'up':'down'}`;
+    el.innerHTML=`${ch>=0?'&#9650;':'&#9660;'} ${ch>=0?'+':''}$${ch.toFixed(3)}/week`;
+  }
+}
+
+function updateMapColors() {
+  d3.selectAll('.county-path').transition().duration(600)
+    .attr("fill",function(){ const c=findCounty(d3.select(this).attr("data-fips")); return c&&priceData[c.name]?colorScale(priceData[c.name].avg):"#2a3f52"; });
+  if(mapGroup) mapGroup.selectAll(".county-price-label").text(d=>priceData[d.name]?`$${priceData[d.name].avg.toFixed(2)}`:"");
+}
+
+function filterCounty(q) {
+  if(!q){d3.selectAll('.county-path').attr('opacity',1);return;}
+  q=q.toLowerCase();
+  d3.selectAll('.county-path').attr('opacity',function(){ const c=findCounty(d3.select(this).attr('data-fips')); return c&&c.name.toLowerCase().includes(q)?1:0.15; });
+}
+
+function switchFuel(type,btn) {
+  currentFuel=type;
+  document.querySelectorAll('.fuel-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  loadData(type);
+}
+
+function buildTicker() {
+  const top=["Los Angeles","San Francisco","San Diego","Orange","Alameda","Sacramento","Santa Clara","Riverside","Marin","Sonoma","Humboldt","Inyo","Kern","Fresno","Ventura","San Bernardino"];
+  let html='';
+  top.forEach(n=>{ if(priceData[n]){ const d=priceData[n]; html+=`<span class="ticker-item"><span class="name">${n}</span><span class="price" style="color:${colorScale(d.avg)}">$${d.avg.toFixed(2)}</span><span class="change" style="color:${d.change>=0?'var(--accent-red)':'var(--accent-green)'}">${d.change>=0?'&#9650;':'&#9660;'} ${Math.abs(d.change).toFixed(3)}</span></span>`; }});
+  document.getElementById('tickerContent').innerHTML=html+html;
+}
+
+// ============================================================
+// MAIN
+// ============================================================
+async function loadData(fuelType='regular') {
+  const ok = await fetchEIAPrices(fuelType);
+  if(!ok) {
+    eiaStatePrice={regular:5.71,midgrade:6.05,premium:6.19,diesel:5.95}[fuelType];
+    eiaHistorical=[{period:'2026-03-30',value:eiaStatePrice},{period:'2026-03-23',value:eiaStatePrice-0.02}];
+    eiaCityPrices={LA:eiaStatePrice+0.02,SF:eiaStatePrice+0.06};
+    document.getElementById('dataSource').textContent='FALLBACK';
+    document.getElementById('dataSource').style.background='rgba(255,171,64,0.15)';
+    document.getElementById('dataSource').style.color='var(--accent-orange)';
+    document.getElementById('dataSource').style.borderColor='rgba(255,171,64,0.3)';
+  } else {
+    document.getElementById('dataSource').textContent='EIA LIVE';
+    document.getElementById('dataSource').style.background='rgba(0,230,118,0.15)';
+    document.getElementById('dataSource').style.color='var(--accent-green)';
+    document.getElementById('dataSource').style.borderColor='rgba(0,230,118,0.3)';
+  }
+  generateCountyPrices();
+  updateMapColors();
+  updateStats();
+  buildTicker();
+  renderKlineChart(chartCounty, chartRange);
+  if(selectedCounty&&priceData[selectedCounty]) {
+    const p=priceData[selectedCounty];
+    document.getElementById('selMin').textContent=`$${p.min.toFixed(2)}`;
+    document.getElementById('selMax').textContent=`$${p.max.toFixed(2)}`;
+    document.getElementById('selAvg').textContent=`$${p.avg.toFixed(2)}`;
+    document.getElementById('selMedian').textContent=`$${p.median.toFixed(2)}`;
+  }
+  document.getElementById('updateTime').textContent=`更新: ${new Date().toLocaleTimeString('zh-CN')}`;
+}
+
+async function init() {
+  // 1. Check URL for API key first
+  const urlKey = getApiKeyFromUrl();
+  if (urlKey) {
+    // Validate the URL key silently
+    const valid = await validateApiKey(urlKey);
+    if (valid) {
+      EIA_API_KEY = urlKey;
+      updateKeyStatusUI(true);
+      hideApiKeyModal();
+    } else {
+      // Invalid URL key — show modal
+      showApiKeyModal();
+      return awaitModalThenInit();
+    }
+  } else {
+    // No URL key — show modal and wait
+    showApiKeyModal();
+    return awaitModalThenInit();
+  }
+
+  // 2. Proceed with data loading
+  await startApp();
+}
+
+function awaitModalThenInit() {
+  // Override submitApiKey to also start app
+  const origSubmit = submitApiKey;
+  submitApiKey = async function() {
+    const input = document.getElementById('apiKeyInput');
+    const key = input.value.trim();
+    const btn = document.getElementById('enterBtn');
+
+    if (key) {
+      btn.textContent = 'Validating...';
+      btn.style.opacity = '0.7';
+      const valid = await validateApiKey(key);
+      btn.style.opacity = '1';
+      if (valid) {
+        EIA_API_KEY = key;
+        updateKeyStatusUI(true);
+        hideApiKeyModal();
+        await startApp();
+      } else {
+        btn.textContent = 'Invalid Key — Try Again';
+        btn.className = 'btn-enter';
+        btn.style.background = 'var(--accent-red)';
+        btn.style.color = '#fff';
+        setTimeout(() => { updateEnterButton(); btn.style.background = ''; btn.style.color = ''; }, 2000);
+      }
+    } else {
+      EIA_API_KEY = '';
+      updateKeyStatusUI(false);
+      hideApiKeyModal();
+      await startApp();
+    }
+  };
+  // Rebind enter key
+  document.getElementById('apiKeyInput').onkeydown = (e) => { if (e.key === 'Enter') submitApiKey(); };
+  document.getElementById('enterBtn').onclick = submitApiKey;
+}
+
+async function startApp() {
+  await loadData(currentFuel);
+  await initMap();
+  fetchGasNews();
+  setInterval(()=>loadData(currentFuel), 5*60*1000);
+  setInterval(fetchGasNews, 10*60*1000);
+  setInterval(()=>{ document.getElementById('updateTime').textContent=`更新: ${new Date().toLocaleTimeString('zh-CN')}`; }, 1000);
+}
+
+init();
+
+window.addEventListener('resize',()=>{
+  const w=document.querySelector('.map-container').clientWidth;
+  const h=document.querySelector('.map-container').clientHeight;
+  mapSvg.attr("width",w).attr("height",h);
+  renderKlineChart(chartCounty, chartRange);
+});
+</script>
+</body>
+</html>

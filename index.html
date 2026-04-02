@@ -15,6 +15,7 @@
     --accent-blue: #40c4ff; --accent-yellow: #ffd740;
   }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow: hidden; height: 100vh; }
+  @media (max-width: 1024px) { body { overflow: auto; height: auto; } }
 
   .header { background: linear-gradient(135deg, var(--bg-secondary), #162230); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; height: 60px; }
   .header-left { display: flex; align-items: center; gap: 14px; }
@@ -164,6 +165,94 @@
   .volume-bar { opacity: 0.3; }
   .ma-line { fill: none; stroke-width: 1.5; }
   .crosshair { stroke: rgba(255,255,255,0.2); stroke-dasharray: 3,3; }
+
+  /* ========== Responsive: Tablet (768–1024px) ========== */
+  @media (max-width: 1024px) {
+    .header { flex-wrap: wrap; height: auto; padding: 10px 16px; gap: 8px; }
+    .header-right { flex-wrap: wrap; gap: 8px; }
+    .fuel-type-selector { order: 10; width: 100%; justify-content: center; margin-top: 4px; }
+
+    .main { flex-direction: column; height: auto; min-height: calc(100vh - 80px); }
+    .map-panel { width: 100%; height: 60vh; min-height: 400px; border-right: none; border-bottom: 1px solid var(--border); }
+    .right-panel { width: 100%; flex-direction: row; height: 50vh; min-height: 360px; }
+    .chart-panel { width: 50%; height: 100%; border-bottom: none; border-right: 1px solid var(--border); }
+    .news-panel { width: 50%; height: 100%; }
+
+    .map-stats-bar { flex-wrap: wrap; }
+    .stat-card { min-width: 25%; flex: 1 1 25%; }
+    .stat-value { font-size: 18px; }
+
+    .modal-box { width: 90%; max-width: 440px; }
+  }
+
+  /* ========== Responsive: Mobile (<768px) ========== */
+  @media (max-width: 768px) {
+    .header { padding: 8px 12px; }
+    .header-left h1 { font-size: 14px; }
+    .header-left h1 small { display: none; }
+    .header-left .logo { width: 30px; height: 30px; font-size: 16px; border-radius: 8px; }
+    .header-right { gap: 6px; }
+    .fuel-btn { padding: 4px 10px; font-size: 11px; }
+    .settings-btn { padding: 4px 8px; font-size: 12px; }
+    .data-badge { font-size: 9px; }
+
+    .main { flex-direction: column; height: auto; }
+    .map-panel { width: 100%; height: 55vh; min-height: 320px; border-right: none; border-bottom: 1px solid var(--border); }
+    .right-panel { width: 100%; flex-direction: column; height: auto; }
+    .chart-panel { width: 100%; height: 45vh; min-height: 280px; border-right: none; border-bottom: 1px solid var(--border); }
+    .news-panel { width: 100%; height: 50vh; min-height: 300px; }
+
+    .map-stats-bar { flex-wrap: wrap; }
+    .stat-card { min-width: 50%; flex: 1 1 50%; padding: 8px 10px; }
+    .stat-card:nth-child(2) { border-right: none; }
+    .stat-value { font-size: 18px; }
+    .stat-label { font-size: 10px; letter-spacing: 0.5px; }
+
+    .chart-header { padding: 8px 12px; }
+    .chart-header h2 { font-size: 13px; }
+    .chart-current-price { padding: 0 12px 6px; }
+    .chart-current-price .big-price { font-size: 20px; }
+    .chart-container { padding: 4px 8px 2px 8px; }
+
+    .news-header { padding: 8px 12px; }
+    .news-list { padding: 6px 8px; }
+    .news-card { padding: 8px 10px; }
+    .news-card h4 { font-size: 12px; }
+    .news-card p { font-size: 10px; }
+
+    .price-ticker { padding: 6px 12px; }
+    .ticker-item { font-size: 11px; margin-right: 24px; }
+
+    .map-legend { bottom: 10px; left: 10px; padding: 8px 10px; }
+    .legend-bar { width: 150px; }
+
+    .selected-info { bottom: 10px; right: 10px; left: 10px; min-width: auto; padding: 12px 14px; }
+    .price-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+    .price-item .p-value { font-size: 16px; }
+
+    .county-tooltip { top: auto; bottom: 60px; right: 8px; left: 8px; min-width: auto; }
+
+    .modal-box { width: 92%; padding: 24px 20px; }
+    .modal-box h2 { font-size: 18px; }
+    .modal-box input { font-size: 13px; padding: 10px 36px 10px 12px; }
+  }
+
+  /* ========== Responsive: Small phone (<480px) ========== */
+  @media (max-width: 480px) {
+    .header-left h1 { font-size: 13px; }
+    .fuel-type-selector { gap: 2px; }
+    .fuel-btn { padding: 3px 8px; font-size: 10px; }
+
+    .map-panel { height: 50vh; min-height: 280px; }
+    .chart-panel { height: 40vh; min-height: 240px; }
+    .news-panel { height: 45vh; min-height: 260px; }
+
+    .stat-card { padding: 6px 8px; }
+    .stat-value { font-size: 16px; }
+
+    .range-btn { padding: 2px 8px; font-size: 10px; }
+    .chart-current-price .big-price { font-size: 18px; }
+  }
 </style>
 </head>
 <body>
@@ -1129,11 +1218,26 @@ async function startApp() {
 
 init();
 
+let resizeTimer;
 window.addEventListener('resize',()=>{
-  const w=document.querySelector('.map-container').clientWidth;
-  const h=document.querySelector('.map-container').clientHeight;
-  mapSvg.attr("width",w).attr("height",h);
-  renderKlineChart(chartCounty, chartRange);
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(()=>{
+    const w=document.querySelector('.map-container').clientWidth;
+    const h=document.querySelector('.map-container').clientHeight;
+    mapSvg.attr("width",w).attr("height",h);
+    // Re-fit map projection and update paths/labels
+    if(projection && pathGen) {
+      d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json").then(us=>{
+        const ca={type:"FeatureCollection",features:topojson.feature(us,us.objects.counties).features.filter(f=>f.id&&f.id.toString().startsWith("06"))};
+        projection.fitSize([w-40,h-80],ca);
+        mapSvg.selectAll(".county-path").attr("d",pathGen);
+        mapSvg.selectAll(".county-price-label")
+          .attr("x",d=>(projection([d.lon,d.lat])||[0])[0])
+          .attr("y",d=>(projection([d.lon,d.lat])||[0])[1]);
+      }).catch(()=>{});
+    }
+    renderKlineChart(chartCounty, chartRange);
+  }, 250);
 });
 </script>
 </body>

@@ -595,7 +595,7 @@ let eiaHistorical = [];       // Array of {period, value} for statewide
 let eiaHistoricalFull = [];   // Full multi-product data for K-line
 let selectedCounty = null;
 let chartCounty = 'Orange';   // Default chart county
-let chartRange = 52;           // Default 1 year
+let chartRange = 52;           // Default 1 year (weeks)
 
 const colorScale = d3.scaleLinear()
   .domain([4.0,5.0,5.5,6.0,7.0])
@@ -697,7 +697,9 @@ function generateCountyPrices() {
 // ============================================================
 function buildKlineData(countyName, weeks=52) {
   const premium = COUNTY_PREMIUMS[countyName] || 0;
-  // Get weekly data grouped by period, with all product prices
+  const fuelCode = FUEL_PRODUCTS[currentFuel].code;
+
+  // Group weekly data by period, with all product prices
   const byPeriod = {};
   eiaHistoricalFull.forEach(d => {
     if (!byPeriod[d.period]) byPeriod[d.period] = {};
@@ -707,25 +709,41 @@ function buildKlineData(countyName, weeks=52) {
   const periods = Object.keys(byPeriod).sort();
   const recentPeriods = periods.slice(-weeks);
 
-  return recentPeriods.map((period, i) => {
+  const result = recentPeriods.map((period, i) => {
     const prices = byPeriod[period];
     const allVals = Object.values(prices).filter(v => !isNaN(v));
-    // Use the current fuel type price as "close"
-    const fuelCode = FUEL_PRODUCTS[currentFuel].code;
     const close = (prices[fuelCode] || 0) + premium;
-    // "Open" = previous week's close
     const prevPeriod = i > 0 ? recentPeriods[i-1] : null;
     const prevPrices = prevPeriod ? byPeriod[prevPeriod] : null;
     const open = prevPrices ? (prevPrices[fuelCode] || close) + premium : close;
-    // High/Low from all fuel types this week + county premium
     const high = Math.max(...allVals) + premium;
-    const low = Math.min(...allVals.filter(v => v > 2)) + premium; // filter out zeroes
-    // Simulated volume
+    const low = Math.min(...allVals.filter(v => v > 2)) + premium;
     const volume = Math.floor(50 + Math.random() * 200);
 
     return { date: new Date(period), period, open:+open.toFixed(3), high:+high.toFixed(3),
              low:+low.toFixed(3), close:+close.toFixed(3), volume };
   });
+
+  // Append a "today" candle using latest state price to bridge the gap
+  if (eiaStatePrice && result.length > 0) {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const lastEntry = result[result.length - 1];
+    if (todayStr > lastEntry.period) {
+      const lastClose = lastEntry.close;
+      const currentClose = +(eiaStatePrice + premium).toFixed(3);
+      result.push({
+        date: today, period: todayStr,
+        open: lastClose,
+        high: +Math.max(lastClose, currentClose).toFixed(3),
+        low: +Math.min(lastClose, currentClose).toFixed(3),
+        close: currentClose,
+        volume: Math.floor(50 + Math.random() * 200)
+      });
+    }
+  }
+
+  return result;
 }
 
 function calculateMA(data, period) {
